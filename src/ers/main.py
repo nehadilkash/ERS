@@ -90,3 +90,21 @@ Answer:"""
     except Exception as e:
         print(f"Error executing query: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# 1. Health check to confirm FastAPI is running
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "service": "ERS"}
+
+# 2. Inspect ChromaDB to see total log count
+@app.get("/db/stats")
+def db_stats():
+    try:
+        count = vector_store._collection.count()
+        return {
+            "status": "connected",
+            "total_logs_stored": count,
+            "collection_name": vector_store._collection.name
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

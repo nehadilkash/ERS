@@ -46,10 +46,18 @@ Make sure Ollama is running in the background on your system. You can verify it 
 ollama list
 ```
 
-### Step 2: Install Required Python Packages
-Navigate into your `ers` folder and install all necessary dependencies:
+### Step 2: Set Up Virtual Environment & Dependencies
+Open your terminal inside the project root folder and run:
 ```bash
-pip install fastapi uvicorn langchain langchain-community langchain-ollama chromadb pydantic python-dotenv
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate  # On Windows use: venv\Scripts\activate
+
+# Install required dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
 ### Step 3: Pull Local AI Models
@@ -68,6 +76,13 @@ python3 -m uvicorn main:app --reload
 
 The server will start at **`http://127.0.0.1:8000`**.
 
+
+### Step 5: Start the Streamlit UI (Terminal 2)
+Open a second terminal window, activate your virtual environment, and launch the user interface:
+```bash
+source venv/bin/activate
+streamlit run app.py
+```
 ---
 
 ## 🧪 Testing the API
@@ -121,3 +136,6 @@ curl -X 'POST' \
 
 ## 📝 License
 Distributed under the MIT License. See `LICENSE` for more information.
+
+
+![alt text](image.png)
