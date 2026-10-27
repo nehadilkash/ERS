@@ -1,8 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional
 
-class LogEntry(BaseModel):
-    timestamp: str  
-    severity: str   
-    service_name: str 
-    message: str
+class QueryRequest(BaseModel):
+    query: str
+    service_name: Optional[str] = None
+    severity: Optional[str] = None

@@ -6,6 +6,8 @@ from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
+import json
+from langchain_ollama import ChatOllama
 
 # 1. Initialize FastAPI app
 app = FastAPI(title="ERS - Event/Error RAG System (Free/Local)")
@@ -35,12 +37,24 @@ def ingest_logs(payload: IngestRequest):
 @app.post("/query")
 def query_logs(payload: QueryRequest):
     try:
+
+        # If service_name or severity are missing, use the Smart Extractor!
+        service_name = payload.service_name
+        severity = payload.severity
+        search_query = payload.query
+
+        if not service_name or not severity:
+            extracted = extract_filters_from_text(payload.query)
+            service_name = service_name or extracted.get("service_name")
+            severity = severity or extracted.get("severity")
+            search_query = extracted.get("cleaned_query", payload.query)
+            
         # Build list of active filter conditions for ChromaDB
         conditions = []
         if payload.service_name:
-            conditions.append({"service_name": payload.service_name.lower()})
+            conditions.append({"service_name": service_name.lower()})
         if payload.severity:
-            conditions.append({"severity": payload.severity.upper()})
+            conditions.append({"severity": severity.upper()})
 
         # Format filter dictionary properly for ChromaDB
         chroma_filter = None
@@ -54,7 +68,7 @@ def query_logs(payload: QueryRequest):
         if chroma_filter:
             search_kwargs["filter"] = chroma_filter
 
-        docs = vector_store.similarity_search(payload.query, **search_kwargs)
+        docs = vector_store.similarity_search(search_query, **search_kwargs)
 
         if not docs:
             return {
@@ -85,7 +99,7 @@ Answer:"""
         chain = prompt | llm | StrOutputParser()
         response = chain.invoke({"context": context_str, "question": payload.query})
 
-        return {"query": payload.query, "response": response}
+        return {"query": payload.query, "cleaned_query": search_query, "response": response}
 
     except Exception as e:
         print(f"Error executing query: {e}")
@@ -108,3 +122,44 @@ def db_stats():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+def extract_filters_from_text(user_query: str) -> dict:
+    """Uses local Ollama to parse natural language and extract metadata filters."""
+    llm = ChatOllama(model="llama3.2", temperature=0)
+    
+    prompt = f"""
+    You are an intelligent log router for a cybersecurity RAG system.
+    Analyze the user's query and extract metadata filters.
+    
+    Valid service names: auth-service, payment-service, order-service, inventory-service
+    Valid severities: CRITICAL, ERROR, WARNING, INFO
+    
+    Return ONLY a valid JSON object with these exact keys:
+    - "service_name": string matching one of the valid service names above, or null if not specified.
+    - "severity": string matching one of the valid severities above, or null if not specified.
+    - "cleaned_query": the semantic search text with filter keywords removed.
+
+    User Query: "{user_query}"
+    """
+    
+    try:
+        response = llm.invoke(prompt)
+        # Clean up response text in case the model adds markdown code blocks
+        content = response.content.strip()
+        if content.startswith("```json"):
+            content = content[7:-3].strip()
+        elif content.startswith("```"):
+            content = content[3:-3].strip()
+            
+        data = json.loads(content)
+        return data
+    except Exception as e:
+        # Fallback if parsing fails: return original query with no filters
+        print(f"Filter extraction fallback triggered: {e}")
+        return {
+            "service_name": None,
+            "severity": None,
+            "cleaned_query": user_query
+        }
