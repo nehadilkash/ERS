@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-from vector.vectorstore import vector_store, add_logs_to_store
+from src.vector.vectorstore import SecurityLogVectorStore
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
@@ -23,63 +23,61 @@ class QueryRequest(BaseModel):
     query: str
     service_name: Optional[str] = None
     severity: Optional[str] = None
+    top_k: Optional[int] = 3
 
-# Ingestion Route
+vector_store = SecurityLogVectorStore()
+
 @app.post("/ingest")
 def ingest_logs(payload: IngestRequest):
     try:
-        add_logs_to_store(payload.logs)
-        return {"status": "success", "count": len(payload.logs)}
+        count = 0
+        for log in payload.logs:
+            vector_store.add_log(log)
+            count += 1
+        return {"status": "success", "processed_logs": count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # Query Route
 @app.post("/query")
 def query_logs(payload: QueryRequest):
     try:
-
         # If service_name or severity are missing, use the Smart Extractor!
         service_name = payload.service_name
         severity = payload.severity
         search_query = payload.query
 
         if not service_name or not severity:
+            # Assumes extract_filters_from_text is imported or defined in your module
             extracted = extract_filters_from_text(payload.query)
             service_name = service_name or extracted.get("service_name")
             severity = severity or extracted.get("severity")
             search_query = extracted.get("cleaned_query", payload.query)
             
-        # Build list of active filter conditions for ChromaDB
-        conditions = []
-        if payload.service_name:
-            conditions.append({"service_name": service_name.lower()})
-        if payload.severity:
-            conditions.append({"severity": severity.upper()})
+        # Call your updated vector store query method
+        results = vector_store.query_logs(
+            query_text=search_query,
+            n_results=3,
+            service_name=service_name,
+            severity=severity
+        )
 
-        # Format filter dictionary properly for ChromaDB
-        chroma_filter = None
-        if len(conditions) == 1:
-            chroma_filter = conditions[0]
-        elif len(conditions) > 1:
-            chroma_filter = {"$and": conditions}
+        # ChromaDB query returns dictionaries of documents and metadatas
+        documents = results.get("documents", [[]])[0]
+        metadatas = results.get("metadatas", [[]])[0]
 
-        # Search documents in ChromaDB with the correct filter syntax
-        search_kwargs = {"k": 3}
-        if chroma_filter:
-            search_kwargs["filter"] = chroma_filter
-
-        docs = vector_store.similarity_search(search_query, **search_kwargs)
-
-        if not docs:
+        if not documents:
             return {
                 "query": payload.query,
+                "cleaned_query": search_query,
                 "response": "No matching logs were found in the database for your query criteria."
             }
 
-        # Format retrieved documents for the prompt
+        # Format retrieved documents for the prompt using the metadata headers & chunks
         context_str = "\n\n".join([
-            f"[{d.metadata.get('timestamp', 'N/A')}] [{d.metadata.get('severity', 'N/A')}] [{d.metadata.get('service_name', 'N/A')}]: {d.page_content}"
-            for d in docs
+            f"[{meta.get('timestamp', 'N/A')}] [{meta.get('severity', 'N/A')}] [{meta.get('service_name', 'N/A')}]: {doc}"
+            for doc, meta in zip(documents, metadatas)
         ])
 
         # Anti-Hallucination Guardrail Prompt
@@ -104,6 +102,7 @@ Answer:"""
     except Exception as e:
         print(f"Error executing query: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # 1. Health check to confirm FastAPI is running
 @app.get("/health")

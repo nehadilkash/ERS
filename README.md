@@ -70,9 +70,9 @@ ollama pull nomic-embed-text
 ### Step 4: Start the FastAPI Server
 Run your FastAPI application using Python's module launcher:
 ```bash
-python3 -m uvicorn main:app --reload
+python3 -m uvicorn src.main:app --reload
 ```
-*(If you are on Windows and `python3` gives an error, use `python -m uvicorn main:app --reload`)*
+*(If you are on Windows and `python3` gives an error, use `python -m uvicorn src.main:app --reload`)*
 
 The server will start at **`http://127.0.0.1:8000`**.
 
@@ -81,7 +81,12 @@ The server will start at **`http://127.0.0.1:8000`**.
 Open a second terminal window, activate your virtual environment, and launch the user interface:
 ```bash
 source venv/bin/activate
-streamlit run app.py
+streamlit run src/app.py
+```
+
+Run the test suite from the project root with:
+```bash
+python -m pytest -q src/test
 ```
 ---
 
